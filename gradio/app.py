@@ -60,7 +60,7 @@ code = """
 from huggingface_hub import InferenceClient
 SYSTEM_PROMPT = "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."
 PROMPT = "{PROMPT}"
-MODEL_NAME = "meta-llama/Meta-Llama-3-70b-Instruct"  # or "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO" or "HuggingFaceH4/zephyr-orpo-141b-A35b-v0.1"
+MODEL_NAME = "meta-llama/Meta-Llama-3-70b-Instruct"  # or "driaforall/mem-agent" or "google/vaultgemma-1b"
 messages = [
     {"role": "system", "content": SYSTEM_PROMPT}, 
     {"role": "user", "content": PROMPT}
@@ -120,8 +120,8 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
 
     with gr.Row() as output_row:
         llama_output = gr.Markdown("<div class='container'>Llama 3-70B Instruct</div>", elem_classes=["md"], height=300)
-        nous_output = gr.Markdown("<div class='container'>Nous Hermes 2 Mixtral 8x7B DPO</div>", elem_classes=["md"], height=300)
-        zephyr_output = gr.Markdown("<div class='container'>Zephyr ORPO 141B A35B</div>", elem_classes=["md"], height=300)
+        nous_output = gr.Markdown("<div class='container'>driaforall/mem-agent</div>", elem_classes=["md"], height=300)
+        zephyr_output = gr.Markdown("<div class='container'>google/vaultgemma-1b</div>", elem_classes=["md"], height=300)
 
     with gr.Row(visible=False) as code_row:
         code_display = gr.Markdown(code, elem_classes=["md"], height=300)
@@ -182,7 +182,7 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
         allow_ip,
         false,
     ).success(
-        partial(inference, model="NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO", model_name="Nous Hermes 2 Mixtral 8x7B DPO"),
+        partial(inference, model="driaforall/mem-agent", model_name="driaforall/mem-agent"),
         [prompt, hf_token_box],
         nous_output,
         show_progress="hidden",
@@ -193,7 +193,7 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
         [prompt.submit, generate_btn.click],
         allow_ip,
     ).success(
-        partial(inference, model="HuggingFaceH4/zephyr-orpo-141b-A35b-v0.1", model_name="Zephyr ORPO 141B A35B"),
+        partial(inference, model="google/vaultgemma-1b", model_name="google/vaultgemma-1b"),
         [prompt, hf_token_box],
         zephyr_output,
         show_progress="hidden",
