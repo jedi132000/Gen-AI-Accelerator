@@ -6,6 +6,13 @@ from functools import partial
 import gradio as gr
 from huggingface_hub import InferenceClient
 import threading
+# Try to load .env variables if python-dotenv is installed. This lets users keep HF_TOKEN in .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # If python-dotenv isn't installed, we'll fall back to requiring the environment to be set.
+    pass
 
 css = """
 gradio-app {
@@ -86,18 +93,73 @@ def allow_ip(request: gr.Request, show_error=True):
             raise gr.Error("Rate limit exceeded. Please try again tomorrow or use your Hugging Face Pro token.", visible=show_error)
         ip_requests.setdefault(ip, []).append(now)
         print("ip_requests", ip_requests)
-    return True
+    # Do not return a value here. Gradio expects pre-call functions used with `gr.on(..., fn=...)` to
+    # either raise a gr.Error (to block the call) or return nothing. Returning a value triggers
+    # the "returned too many output values" warning.
 
 def inference(prompt, hf_token, model, model_name):
+    # Here `model` is the model ID selected from the dropdown (e.g. 'gpt2')
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     if hf_token is None or not hf_token.strip():
         hf_token = os.getenv("HF_TOKEN")
-    client = InferenceClient(model=model, token=hf_token)
-    tokens = f"**`{model_name}`**\n\n"
-    for completion in client.chat_completion(messages, max_tokens=200, stream=True):
-        token = completion.choices[0].delta.content
-        tokens += token
-        yield tokens
+    # If no human-friendly model_name was provided, use the model id selected from the dropdown
+    if not model_name:
+        model_name = model
+    # If no token is provided, yield a friendly message rather than letting the HF client raise
+    # and crash the Gradio queue worker.
+    if not hf_token:
+        yield f"**`{model_name}`**\n\nNo Hugging Face API token provided. Paste a token in the UI, set the HF_TOKEN env var, or run `huggingface-cli login`."
+        return
+
+    try:
+        client = InferenceClient(model=model, token=hf_token)
+        tokens = f"**`{model_name}`**\n\n"
+        # First try the chat_completion streaming API
+        try:
+            for completion in client.chat_completion(messages, max_tokens=200, stream=True):
+                # Some streamed events may not have `delta.content` (e.g., role/meta events); guard access.
+                try:
+                    token = completion.choices[0].delta.content
+                except Exception:
+                    # skip events without text content
+                    continue
+                if token:
+                    tokens += token
+                    yield tokens
+            return
+        except Exception:
+            # If chat_completion isn't supported for this model/provider, fall back to text_generation
+            pass
+
+        # Fallback: try text generation endpoint
+        try:
+            gen_resp = client.text_generation(messages[-1]["content"], max_new_tokens=200)
+            # text_generation may return a dict with 'generated_text' or similar
+            out_text = None
+            if isinstance(gen_resp, dict):
+                out_text = gen_resp.get("generated_text") or gen_resp.get("text")
+            elif isinstance(gen_resp, list) and len(gen_resp) > 0:
+                # sometimes a list of generations is returned
+                first = gen_resp[0]
+                if isinstance(first, dict):
+                    out_text = first.get("generated_text") or first.get("text")
+                else:
+                    out_text = str(first)
+            if out_text:
+                yield tokens + out_text
+                return
+        except Exception:
+            # if fallback fails, we'll handle below
+            pass
+    except ValueError as ve:
+        # Common case: missing/invalid token or auth required
+        yield f"**`{model_name}`**\n\nError: {ve}.\n\nMake sure your token has Inference API access or run `huggingface-cli login`."
+    except StopIteration:
+        # Provider selection failed inside the HF helper
+        yield f"**`{model_name}`**\n\nError: no provider available for the requested model. Check model name and account access."
+    except Exception as e:
+        # Generic catch-all to avoid crashing the Gradio worker loop; show error to user.
+        yield f"**`{model_name}`**\n\nUnexpected error contacting Hugging Face Inference API: {e}"
 
 def random_prompt():
     return random.choice([
@@ -118,10 +180,25 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
             generate_btn = gr.Button(value="Generate", elem_id="generate_button", variant="primary", size="sm")
             code_btn = gr.Button(value="View Code", elem_id="code_button", variant="secondary", size="sm")
 
+    # Compact curated hosted model options (smaller / medium models that are usually cheaper/faster).
+    # These were chosen from models that previously showed Hosted Inference availability in scans.
+    curated_models = [
+        "meta-llama/Meta-Llama-3-8B",
+        "meta-llama/Llama-3.1-8B",
+        "google/gemma-2-9b",
+        "astronomer/Llama-3-70B-Special-Tokens-Adjusted",
+    ]
+
+    # Model selectors (one per output column)
+    with gr.Row():
+        llama_model_sel = gr.Dropdown(curated_models, value="Qwen/Qwen2.5-7B-Instruct", label="Model for left panel")
+        nous_model_sel = gr.Dropdown(curated_models, value="meta-llama/Llama-3.1-8B-Instruct", label="Model for center panel")
+        zephyr_model_sel = gr.Dropdown(curated_models, value="tiiuae/falcon-7b-instruct", label="Model for right panel")
+
     with gr.Row() as output_row:
         llama_output = gr.Markdown("<div class='container'>Llama 3-70B Instruct</div>", elem_classes=["md"], height=300)
-        nous_output = gr.Markdown("<div class='container'>driaforall/mem-agent</div>", elem_classes=["md"], height=300)
-        zephyr_output = gr.Markdown("<div class='container'>google/vaultgemma-1b</div>", elem_classes=["md"], height=300)
+        nous_output = gr.Markdown("<div class='container'>GPT-2 (fallback)</div>", elem_classes=["md"], height=300)
+        zephyr_output = gr.Markdown("<div class='container'>BLOOM (fallback)</div>", elem_classes=["md"], height=300)
 
     with gr.Row(visible=False) as code_row:
         code_display = gr.Markdown(code, elem_classes=["md"], height=300)
@@ -170,8 +247,9 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
         allow_ip,
         false,
     ).success(
-        partial(inference, model="meta-llama/Meta-Llama-3-70b-Instruct", model_name="Llama 3-70B Instruct"),
-        [prompt, hf_token_box],
+        # model and model_name will be provided from the dropdown when the event fires
+        partial(inference, model_name=None),
+        [prompt, hf_token_box, llama_model_sel],
         llama_output,
         show_progress="hidden",
         api_name=False
@@ -182,8 +260,8 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
         allow_ip,
         false,
     ).success(
-        partial(inference, model="driaforall/mem-agent", model_name="driaforall/mem-agent"),
-        [prompt, hf_token_box],
+        partial(inference, model_name=None),
+        [prompt, hf_token_box, nous_model_sel],
         nous_output,
         show_progress="hidden",
         api_name=False
@@ -193,8 +271,8 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
         [prompt.submit, generate_btn.click],
         allow_ip,
     ).success(
-        partial(inference, model="google/vaultgemma-1b", model_name="google/vaultgemma-1b"),
-        [prompt, hf_token_box],
+        partial(inference, model_name=None),
+        [prompt, hf_token_box, zephyr_model_sel],
         zephyr_output,
         show_progress="hidden",
         api_name=False
@@ -209,7 +287,7 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
     )
 
 
-demo.launch(show_api=False)
+demo.launch(show_api=False , debug=True)
 
 
 
