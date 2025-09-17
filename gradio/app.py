@@ -184,9 +184,13 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
     # These were chosen from models that previously showed Hosted Inference availability in scans.
     curated_models = [
         "meta-llama/Meta-Llama-3-8B",
+        "meta-llama/Meta-Llama-3-70b-Instruct",
+        "meta-llama/Llama-3.3-70B-Instruct",
+        "meta-llama/Llama-3.1-8B-Instruct",
         "meta-llama/Llama-3.1-8B",
         "google/gemma-2-9b",
         "astronomer/Llama-3-70B-Special-Tokens-Adjusted",
+        "Qwen/Qwen3-Next-80B-A3B-Instruct",
     ]
 
     # Model selectors (one per output column)
