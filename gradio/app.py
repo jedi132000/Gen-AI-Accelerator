@@ -191,9 +191,9 @@ with gr.Blocks(css=css, theme="YTheme/Minecraft", js=js) as demo:
 
     # Model selectors (one per output column)
     with gr.Row():
-        llama_model_sel = gr.Dropdown(curated_models, value="Qwen/Qwen2.5-7B-Instruct", label="Model for left panel")
-        nous_model_sel = gr.Dropdown(curated_models, value="meta-llama/Llama-3.1-8B-Instruct", label="Model for center panel")
-        zephyr_model_sel = gr.Dropdown(curated_models, value="tiiuae/falcon-7b-instruct", label="Model for right panel")
+        llama_model_sel = gr.Dropdown(curated_models, value="meta-llama/Meta-Llama-3-8B", label="Model for left panel")
+        nous_model_sel = gr.Dropdown(curated_models, value="meta-llama/Llama-3.1-8B", label="Model for center panel")
+        zephyr_model_sel = gr.Dropdown(curated_models, value="google/gemma-2-9b", label="Model for right panel")
 
     with gr.Row() as output_row:
         llama_output = gr.Markdown("<div class='container'>Llama 3-70B Instruct</div>", elem_classes=["md"], height=300)
